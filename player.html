@@ -14,32 +14,51 @@ iframe { position:absolute; inset:0; width:100%; height:100%; border:none; }
 <iframe id="player" allow="autoplay; encrypted-media" allowfullscreen></iframe>
 </div>
 <script>
-// Get video ID and start time from URL params
 const params = new URLSearchParams(window.location.search);
 const videoId = params.get('v');
 const startTime = parseInt(params.get('t') || '0');
-
 if (videoId) {
   document.getElementById('player').src =
     'https://www.youtube.com/embed/' + videoId +
     '?enablejsapi=1&autoplay=1&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
 }
 
-// Listen for seek commands from React Native WebView
+// React Native → player.html へのコマンド受信
 window.addEventListener('message', function(e) {
   try {
     var msg = JSON.parse(e.data);
     var iframe = document.getElementById('player');
-    if (msg.type === 'seek') {
-      iframe.contentWindow.postMessage(
-        JSON.stringify({event:'command', func:'seekTo', args:[msg.time, true]}), '*'
-      );
-      iframe.contentWindow.postMessage(
-        JSON.stringify({event:'command', func:'playVideo', args:[]}), '*'
-      );
+    if (msg.event === 'command') {
+      iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
     }
   } catch(err) {}
 });
+
+// YouTube IFrame → player.html へのレスポンス受信
+// getCurrentTime の返答をここで受け取りReact Nativeに転送
+window.addEventListener('message', function(e) {
+  try {
+    var data = JSON.parse(e.data);
+    // YouTube IFrameからの現在時刻レスポンス
+    if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
+      if (window.ReactNativeWebView) {
+        window.ReactNativeWebView.postMessage(
+          JSON.stringify({ type: 'currentTime', value: data.info.currentTime })
+        );
+      }
+    }
+  } catch(err) {}
+});
+
+// 200ms毎にYouTube IFrameに現在時刻を問い合わせる
+setInterval(function() {
+  var iframe = document.getElementById('player');
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage(
+      JSON.stringify({ event: 'listening' }), '*'
+    );
+  }
+}, 200);
 </script>
 </body>
 </html>
