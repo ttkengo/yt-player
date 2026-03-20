@@ -20,7 +20,7 @@ const startTime = parseInt(params.get('t') || '0');
 if (videoId) {
   document.getElementById('player').src =
     'https://www.youtube.com/embed/' + videoId +
-    '?enablejsapi=1&autoplay=1&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
+    '?enablejsapi=1&autoplay=0&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
 }
 
 // ── React Native → player.html コマンド受信 ────────────────────
