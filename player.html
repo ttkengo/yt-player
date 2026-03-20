@@ -23,40 +23,46 @@ if (videoId) {
     '?enablejsapi=1&autoplay=0&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
 }
 
-// ── React Native → player.html コマンド受信 ────────────────────
+var fadeTimer = null;
+
+function sendCmd(cmd, args) {
+  var f = document.getElementById('player');
+  if (f && f.contentWindow)
+    f.contentWindow.postMessage(JSON.stringify({event:'command', func:cmd, args:args||[]}), '*');
+}
+
+function fadeOut(duration) {
+  if (fadeTimer) clearInterval(fadeTimer);
+  var steps = Math.max(1, Math.round(duration * 1000 / 50));
+  var volStep = 100 / steps;
+  var vol = 100;
+  sendCmd('unMute');
+  sendCmd('setVolume', [vol]);
+  fadeTimer = setInterval(function() {
+    vol -= volStep;
+    if (vol <= 0) {
+      vol = 0;
+      clearInterval(fadeTimer);
+      fadeTimer = null;
+      sendCmd('mute');
+    }
+    sendCmd('setVolume', [Math.round(vol)]);
+  }, 50);
+}
+
+// React Native → player.html コマンド受信
 window.addEventListener('message', function(e) {
   try {
     var msg = JSON.parse(e.data);
-    var iframe = document.getElementById('player');
-
-    // addEventListener コマンド
-    if (msg.event === 'command' && msg.func === 'addEventListener' && iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
-      return;
-    }
-
-    // その他YouTube IFrameへの転送コマンド
-    if (msg.event === 'command' && iframe && iframe.contentWindow) {
-      iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
-    }
+    if (msg.type === 'fadeOut') { fadeOut(msg.duration || 1.0); return; }
+    if (msg.event === 'command') { sendCmd(msg.func, msg.args); return; }
   } catch(err) {}
 });
 
-// ── YouTube IFrame → player.html メッセージ受信 ───────────────
+// YouTube IFrame → player.html
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
-
-    // デバッグ: currentTime以外を全部ログ
-    if (data.event && data.event !== 'infoDelivery') {
-      if (window.ReactNativeWebView) {
-        window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'debug', msg: data.event + ' info=' + JSON.stringify(data.info) })
-        );
-      }
-    }
-
-    // 現在時刻をReact Nativeに送信
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
@@ -64,8 +70,6 @@ window.addEventListener('message', function(e) {
         );
       }
     }
-
-    // onStateChange: 全データをそのまま送信（デバッグ用）
     if (data.event === 'onStateChange') {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
@@ -76,31 +80,21 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// ── onReady後にaddEventListenerを登録 ─────────────────────────
+// onReady後にaddEventListenerを登録
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
     if (data.event === 'onReady') {
-      var iframe = document.getElementById('player');
-      if (iframe && iframe.contentWindow) {
-        // onStateChangeイベントを登録
-        iframe.contentWindow.postMessage(
-          JSON.stringify({ event: 'listening' }), '*'
-        );
-        iframe.contentWindow.postMessage(
-          JSON.stringify({ event: 'command', func: 'addEventListener', args: ['onStateChange'] }), '*'
-        );
-      }
+      sendCmd('addEventListener', ['onStateChange']);
     }
   } catch(err) {}
 });
 
-// ── 200ms毎にYouTubeに現在時刻を問い合わせ ────────────────────
+// 200ms毎にcurrentTimeをポーリング
 setInterval(function() {
-  var iframe = document.getElementById('player');
-  if (iframe && iframe.contentWindow) {
-    iframe.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
-  }
+  var f = document.getElementById('player');
+  if (f && f.contentWindow)
+    f.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
 }, 200);
 </script>
 </body>
