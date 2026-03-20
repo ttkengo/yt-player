@@ -65,11 +65,11 @@ window.addEventListener('message', function(e) {
       }
     }
 
-    // onStateChange: playing(1)でseek完了を通知
+    // onStateChange: 全データをそのまま送信（デバッグ用）
     if (data.event === 'onStateChange') {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'stateChange', state: data.info })
+          JSON.stringify({ type: 'stateChange', state: data.info, fullData: JSON.stringify(data) })
         );
       }
     }
