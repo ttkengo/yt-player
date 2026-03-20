@@ -23,23 +23,88 @@ if (videoId) {
     '?enablejsapi=1&autoplay=1&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
 }
 
-// React Native → player.html へのコマンド受信
+// ── 音量フェード管理 ────────────────────────────────────────────
+var currentVolume = 100;
+var fadeTimer = null;
+var isMuted = false;
+
+function setVol(v) {
+  currentVolume = Math.max(0, Math.min(100, v));
+  var iframe = document.getElementById('player');
+  if (iframe && iframe.contentWindow) {
+    iframe.contentWindow.postMessage(
+      JSON.stringify({event:'command', func:'setVolume', args:[currentVolume]}), '*'
+    );
+  }
+}
+
+function clearFade() {
+  if (fadeTimer) { clearInterval(fadeTimer); fadeTimer = null; }
+}
+
+function fadeIn(duration) {
+  clearFade();
+  isMuted = false;
+  var steps = Math.max(1, Math.round(duration * 20)); // 50ms間隔
+  var volStep = 100 / steps;
+  var current = 0;
+  setVol(0);
+  fadeTimer = setInterval(function() {
+    current += volStep;
+    if (current >= 100) {
+      setVol(100);
+      clearFade();
+    } else {
+      setVol(current);
+    }
+  }, 50);
+}
+
+function fadeOut(duration) {
+  clearFade();
+  var steps = Math.max(1, Math.round(duration * 20));
+  var volStep = 100 / steps;
+  var current = 100;
+  fadeTimer = setInterval(function() {
+    current -= volStep;
+    if (current <= 0) {
+      setVol(0);
+      isMuted = true;
+      clearFade();
+    } else {
+      setVol(current);
+    }
+  }, 50);
+}
+
+function muteNow() {
+  clearFade();
+  isMuted = true;
+  setVol(0);
+}
+
+// ── React Native → player.html コマンド受信 ────────────────────
 window.addEventListener('message', function(e) {
   try {
     var msg = JSON.parse(e.data);
     var iframe = document.getElementById('player');
-    if (msg.event === 'command') {
+
+    // フェードコマンド
+    if (msg.type === 'fadeIn')  { fadeIn(msg.duration || 0.5); return; }
+    if (msg.type === 'fadeOut') { fadeOut(msg.duration || 0.5); return; }
+    if (msg.type === 'muteNow') { muteNow(); return; }
+
+    // YouTube IFrameへの転送コマンド
+    if (msg.event === 'command' && iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
     }
   } catch(err) {}
 });
 
-// YouTube IFrame → player.html へのレスポンス受信
-// getCurrentTime の返答をここで受け取りReact Nativeに転送
+// ── YouTube IFrame → player.html 現在時刻受信 ─────────────────
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
-    // YouTube IFrameからの現在時刻レスポンス
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
@@ -50,7 +115,7 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// 200ms毎にYouTube IFrameに現在時刻を問い合わせる
+// ── 200ms毎にYouTubeに現在時刻を問い合わせ ────────────────────
 setInterval(function() {
   var iframe = document.getElementById('player');
   if (iframe && iframe.contentWindow) {
