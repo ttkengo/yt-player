@@ -26,7 +26,9 @@ if (videoId) {
 // ── 音量フェード管理 ────────────────────────────────────────────
 var currentVolume = 100;
 var fadeTimer = null;
-var isMuted = false;
+var pendingFadeIn = null;   // 再生開始時に実行予定のfadeIn duration
+var pendingFadeOut = null;  // 再生開始時に実行予定のfadeOut duration
+var isSeeking = false;      // seek中フラグ（muteNow後にtrueになる）
 
 function setVol(v) {
   currentVolume = Math.max(0, Math.min(100, v));
@@ -44,8 +46,9 @@ function clearFade() {
 
 function fadeIn(duration) {
   clearFade();
-  isMuted = false;
-  var steps = Math.max(1, Math.round(duration * 20)); // 50ms間隔
+  pendingFadeIn = null;
+  pendingFadeOut = null;
+  var steps = Math.max(1, Math.round(duration * 20));
   var volStep = 100 / steps;
   var current = 0;
   setVol(0);
@@ -62,6 +65,8 @@ function fadeIn(duration) {
 
 function fadeOut(duration) {
   clearFade();
+  pendingFadeIn = null;
+  pendingFadeOut = null;
   var steps = Math.max(1, Math.round(duration * 20));
   var volStep = 100 / steps;
   var current = 100;
@@ -69,7 +74,6 @@ function fadeOut(duration) {
     current -= volStep;
     if (current <= 0) {
       setVol(0);
-      isMuted = true;
       clearFade();
     } else {
       setVol(current);
@@ -79,8 +83,25 @@ function fadeOut(duration) {
 
 function muteNow() {
   clearFade();
-  isMuted = true;
+  pendingFadeIn = null;
+  pendingFadeOut = null;
+  isSeeking = true;  // seek開始フラグ
   setVol(0);
+}
+
+// 再生開始時（state=1）に呼ばれる: pendingFadeを実行
+function onPlaybackStarted() {
+  isSeeking = false;
+  if (pendingFadeIn !== null) {
+    var dur = pendingFadeIn;
+    pendingFadeIn = null;
+    fadeIn(dur);
+  } else if (pendingFadeOut !== null) {
+    var dur2 = pendingFadeOut;
+    pendingFadeOut = null;
+    fadeOut(dur2);
+  }
+  // pendingなし・muteNow済みの場合は音量0のまま維持
 }
 
 // ── React Native → player.html コマンド受信 ────────────────────
@@ -89,9 +110,25 @@ window.addEventListener('message', function(e) {
     var msg = JSON.parse(e.data);
     var iframe = document.getElementById('player');
 
-    // フェードコマンド
-    if (msg.type === 'fadeIn')  { fadeIn(msg.duration || 0.5); return; }
-    if (msg.type === 'fadeOut') { fadeOut(msg.duration || 0.5); return; }
+    if (msg.type === 'fadeIn') {
+      if (isSeeking) {
+        // seek中: 再生開始まで保留（古いpendingを上書き）
+        pendingFadeIn = msg.duration || 0.5;
+        pendingFadeOut = null;
+      } else {
+        fadeIn(msg.duration || 0.5);
+      }
+      return;
+    }
+    if (msg.type === 'fadeOut') {
+      if (isSeeking) {
+        pendingFadeOut = msg.duration || 0.5;
+        pendingFadeIn = null;
+      } else {
+        fadeOut(msg.duration || 0.5);
+      }
+      return;
+    }
     if (msg.type === 'muteNow') { muteNow(); return; }
 
     // YouTube IFrameへの転送コマンド
@@ -101,15 +138,41 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// ── YouTube IFrame → player.html 現在時刻受信 ─────────────────
+// ── YouTube IFrame → player.html メッセージ受信 ───────────────
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
+
+    // 現在時刻をReact Nativeに送信
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
           JSON.stringify({ type: 'currentTime', value: data.info.currentTime })
         );
+      }
+    }
+
+    // 再生状態変化を検知
+    if (data.event === 'onStateChange') {
+      var state = data.info;
+      if (state === 1) {
+        // 再生開始: pendingFadeがあれば実行
+        onPlaybackStarted();
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: 'playbackStarted' })
+          );
+        }
+      } else if (state === 2) {
+        // 一時停止
+        if (window.ReactNativeWebView) {
+          window.ReactNativeWebView.postMessage(
+            JSON.stringify({ type: 'playbackPaused' })
+          );
+        }
+      } else if (state === 3) {
+        // バッファリング中もseekingとみなす
+        isSeeking = true;
       }
     }
   } catch(err) {}
