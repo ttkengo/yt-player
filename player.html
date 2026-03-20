@@ -23,30 +23,40 @@ if (videoId) {
     '?enablejsapi=1&autoplay=1&rel=0&playsinline=1&start=' + startTime + '&modestbranding=1';
 }
 
+// ── React Native → player.html コマンド受信 ────────────────────
 window.addEventListener('message', function(e) {
   try {
     var msg = JSON.parse(e.data);
     var iframe = document.getElementById('player');
 
+    // addEventListener コマンド
+    if (msg.event === 'command' && msg.func === 'addEventListener' && iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
+      return;
+    }
+
+    // その他YouTube IFrameへの転送コマンド
     if (msg.event === 'command' && iframe && iframe.contentWindow) {
       iframe.contentWindow.postMessage(JSON.stringify(msg), '*');
     }
   } catch(err) {}
 });
 
+// ── YouTube IFrame → player.html メッセージ受信 ───────────────
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
 
-    // 全メッセージをデバッグログ（currentTime以外）
+    // デバッグ: currentTime以外を全部ログ
     if (data.event && data.event !== 'infoDelivery') {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'debug', msg: JSON.stringify(data) })
+          JSON.stringify({ type: 'debug', msg: data.event + ' info=' + JSON.stringify(data.info) })
         );
       }
     }
 
+    // 現在時刻をReact Nativeに送信
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
@@ -55,17 +65,37 @@ window.addEventListener('message', function(e) {
       }
     }
 
+    // onStateChange: playing(1)でseek完了を通知
     if (data.event === 'onStateChange') {
-      var state = data.info;
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'playbackStarted' })
+          JSON.stringify({ type: 'stateChange', state: data.info })
         );
       }
     }
   } catch(err) {}
 });
 
+// ── onReady後にaddEventListenerを登録 ─────────────────────────
+window.addEventListener('message', function(e) {
+  try {
+    var data = JSON.parse(e.data);
+    if (data.event === 'onReady') {
+      var iframe = document.getElementById('player');
+      if (iframe && iframe.contentWindow) {
+        // onStateChangeイベントを登録
+        iframe.contentWindow.postMessage(
+          JSON.stringify({ event: 'listening' }), '*'
+        );
+        iframe.contentWindow.postMessage(
+          JSON.stringify({ event: 'command', func: 'addEventListener', args: ['onStateChange'] }), '*'
+        );
+      }
+    }
+  } catch(err) {}
+});
+
+// ── 200ms毎にYouTubeに現在時刻を問い合わせ ────────────────────
 setInterval(function() {
   var iframe = document.getElementById('player');
   if (iframe && iframe.contentWindow) {
