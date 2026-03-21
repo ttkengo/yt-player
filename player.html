@@ -95,7 +95,7 @@ setInterval(function() {
   var f = document.getElementById('player');
   if (f && f.contentWindow)
     f.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
-}, 200);
+}, 100);
 </script>
 </body>
 </html>
