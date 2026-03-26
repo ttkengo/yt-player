@@ -90,12 +90,12 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// 200ms毎にcurrentTimeをポーリング
+// 30ms毎にcurrentTimeをポーリング
 setInterval(function() {
   var f = document.getElementById('player');
   if (f && f.contentWindow)
     f.contentWindow.postMessage(JSON.stringify({ event: 'listening' }), '*');
-}, 100);
+}, 30);
 </script>
 </body>
 </html>
