@@ -24,6 +24,7 @@ if (videoId) {
 }
 
 var fadeTimer = null;
+var __restoring = false; // 位置復元中フラグ（stateChange/currentTimeをRNに送らない）
 
 function sendCmd(cmd, args) {
   var f = document.getElementById('player');
@@ -64,13 +65,23 @@ window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
-      if (window.ReactNativeWebView) {
+      if (!__restoring && window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
           JSON.stringify({ type: 'currentTime', value: data.info.currentTime })
         );
       }
     }
     if (data.event === 'onStateChange') {
+      if (__restoring) {
+        // 復元中: play→pause シーケンス
+        if (data.info === 1) { sendCmd('pauseVideo'); }
+        if (data.info === 2) {
+          sendCmd('unMute');
+          sendCmd('setVolume', [100]);
+          __restoring = false;
+        }
+        return;
+      }
       if (window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
           JSON.stringify({ type: 'stateChange', state: data.info, fullData: JSON.stringify(data) })
@@ -80,12 +91,19 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// onReady後にaddEventListenerを登録
+// onReady後にaddEventListenerを登録 + 位置復元
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
     if (data.event === 'onReady') {
       sendCmd('addEventListener', ['onStateChange']);
+      if (startTime > 0) {
+        // ミュート→再生→stateChange=1で即pauseVideo→フレーム表示
+        __restoring = true;
+        sendCmd('mute');
+        sendCmd('setVolume', [0]);
+        sendCmd('playVideo');
+      }
     }
   } catch(err) {}
 });
