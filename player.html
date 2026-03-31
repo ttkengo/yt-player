@@ -80,15 +80,12 @@ window.addEventListener('message', function(e) {
   } catch(err) {}
 });
 
-// onReady後にaddEventListenerを登録、保存ポジションへシーク
+// onReady後にaddEventListenerを登録
 window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
     if (data.event === 'onReady') {
       sendCmd('addEventListener', ['onStateChange']);
-      if (startTime > 0) {
-        sendCmd('cueVideoById', [{videoId: videoId, startSeconds: startTime}]);
-      }
     }
   } catch(err) {}
 });
