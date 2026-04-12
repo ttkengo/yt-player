@@ -46,7 +46,6 @@ function fadeOut(duration) {
       vol = 0;
       clearInterval(fadeTimer);
       fadeTimer = null;
-      sendCmd('mute');
     }
     sendCmd('setVolume', [Math.round(vol)]);
   }, 50);
