@@ -25,6 +25,7 @@ if (videoId) {
 
 var fadeTimer = null;
 var __restoring = false; // 位置復元中フラグ（stateChange/currentTimeをRNに送らない）
+var __monitorFadeAt = -1; // この再生時刻になったらfadeOut（-1=無効）
 
 function sendCmd(cmd, args) {
   var f = document.getElementById('player');
@@ -56,6 +57,7 @@ window.addEventListener('message', function(e) {
   try {
     var msg = JSON.parse(e.data);
     if (msg.type === 'fadeOut') { fadeOut(msg.duration || 1.0); return; }
+    if (msg.type === 'setMonitorFadeAt') { __monitorFadeAt = msg.time; return; }
     if (msg.event === 'command') { sendCmd(msg.func, msg.args); return; }
   } catch(err) {}
 });
@@ -65,9 +67,14 @@ window.addEventListener('message', function(e) {
   try {
     var data = JSON.parse(e.data);
     if (data.event === 'infoDelivery' && data.info && data.info.currentTime !== undefined) {
+      var ct = data.info.currentTime;
+      if (__monitorFadeAt >= 0 && ct >= __monitorFadeAt) {
+        __monitorFadeAt = -1;
+        fadeOut(0.1);
+      }
       if (!__restoring && window.ReactNativeWebView) {
         window.ReactNativeWebView.postMessage(
-          JSON.stringify({ type: 'currentTime', value: data.info.currentTime })
+          JSON.stringify({ type: 'currentTime', value: ct })
         );
       }
     }
